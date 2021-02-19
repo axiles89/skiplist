@@ -39,7 +39,7 @@ func TestAdd10000(t *testing.T) {
 	var arena = NewArena(uint32(10000000 + 1) * r)
 	var list, _ = NewList(arena)
 	var w sync.WaitGroup
-	for i := 0; i < 8; i++ {
+	for i := 0; i < 4; i++ {
 		w.Add(1)
 		go func() {
 			defer w.Done()
@@ -55,7 +55,7 @@ func TestAdd10000(t *testing.T) {
 
 func BenchmarkParallelAdd2(b *testing.B) {
 	sizeHead := sizeNode + align
-	sizeNodeWithAlign := sizeNode + 2 + align
+	sizeNodeWithAlign := sizeNode + 11 + align
 
 	b.Run("run parallel", func(b *testing.B) {
 		var arena = NewArena(sizeHead + (uint32(b.N) * sizeNodeWithAlign))
@@ -64,7 +64,9 @@ func BenchmarkParallelAdd2(b *testing.B) {
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				err := list.Add([]byte("a"), []byte("b"))
+				token := make([]byte, 10)
+				rand.Read(token)
+				err := list.Add(token, []byte("b"))
 				if err != nil {
 					b.Error(err)
 					b.FailNow()

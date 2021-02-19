@@ -2,10 +2,12 @@ package skiplist
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/axiles89/skiplist/fastrand"
 	"math"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 )
 
 const (
@@ -29,12 +31,14 @@ type List struct {
 	head *node
 	level uint32
 	mu sync.Mutex
+	mm map[uint32]bool
 }
 
 func NewList(arena *Arena) (*List, error) {
 	l := List{
 		arena: arena,
 		level: 1,
+		mm: make(map[uint32]bool),
 	}
 	err := l.addHeadNode()
 	if err != nil {
@@ -61,7 +65,7 @@ func (l *List) updateLevel(old, new uint32) bool {
 
 
 func (l *List) addHeadNode() error {
-	offset, err := l.arena.alloc(sizeNode)
+	offset, err := l.arena.alloc(sizeNode, 0)
 	if err != nil {
 		return err
 	}
@@ -73,14 +77,16 @@ func (l *List) newNode(key, value []byte, level uint32) (*node, error) {
 	keySize, valueSize := uint32(len(key)), uint32(len(value))
 
 	unusedSize := (maxHeight - level) * 4
-	offset, err := l.arena.alloc(sizeNode - unusedSize + keySize + valueSize)
+	//s := sizeNode
+	//fmt.Println(s)
+	offset, err := l.arena.alloc(sizeNode - unusedSize + keySize + valueSize, unusedSize)
 	if err != nil {
 		return nil, err
 	}
 	newNode := (*node)(l.arena.getPointerByOffset(offset))
 	newNode.keySize = keySize
 	newNode.valueSize = valueSize
-	newNode.keyOffset = offset + sizeNode
+	newNode.keyOffset = offset + sizeNode - unusedSize
 
 	copy(newNode.getKey(l.arena), key)
 	copy(newNode.getValue(l.arena), value)
@@ -117,6 +123,8 @@ func (l *List) randomLevel() uint32 {
 func (l *List) findUpdateNodeForLevel(currentNode *node, level uint32, key []byte, j bool) (updateNode *node, nextOffset uint32) {
 	var (
 		nextNode *node
+		testNode *node
+		testOffset uint32
 		nextKey []byte
 	)
 	for {
@@ -129,13 +137,14 @@ func (l *List) findUpdateNodeForLevel(currentNode *node, level uint32, key []byt
 		}
 
 		if nextOffset > uint32(len(l.arena.buf)) {
-			//fmt.Println(nextNode, testNode, testOffset)
+			fmt.Println(nextNode, testOffset, testNode)
 		}
 
 		nextNode = (*node)(l.arena.getPointerByOffset(nextOffset))
 
 		if nextNode.keyOffset + nextNode.keySize  > uint32(len(l.arena.buf)) {
-			//fmt.Println(nextNode, testNode, testOffset,)
+			nextOffset2 := currentNode.getOffsetForLevel(level)
+			fmt.Println(nextNode, testOffset, testNode, nextOffset2)
 		}
 		nextKey = nextNode.getKey(l.arena)
 		// if key < nextKey
@@ -143,8 +152,8 @@ func (l *List) findUpdateNodeForLevel(currentNode *node, level uint32, key []byt
 			updateNode = currentNode
 			break
 		} else {
-			//testNode = currentNode
-			//testOffset = nextOffset
+			testNode = currentNode
+			testOffset = nextOffset
 			currentNode = nextNode
 		}
 	}
@@ -176,7 +185,7 @@ func (l *List) Add(key, value []byte) error {
 		return err
 	}
 
-	offsetNewNode := newNode.getOffset()
+	offsetNewNode := l.arena.getPointerOffset(unsafe.Pointer(newNode))
 
 	var (
 		updateNode *node
